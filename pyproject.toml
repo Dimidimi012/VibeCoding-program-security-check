@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "code-sentry"
+version = "0.1.0"
+description = "AI 代码本地安检仪 — 检测中转站投毒和 AI 生成代码安全漏洞"
+authors = [{name = "Hanako"}]
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "rich>=13.0.0",
+    "click>=8.0.0",
+]
+
+[project.scripts]
+code-sentry = "code_sentry.cli:main"
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-cov"]
+
+[tool.setuptools.packages.find]
+where = ["."]

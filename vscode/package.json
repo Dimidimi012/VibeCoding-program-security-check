@@ -1,0 +1,109 @@
+{
+  "name": "code-sentry",
+  "displayName": "Code Sentry — AI 代码安检仪",
+  "description": "本地运行，检测中转站投毒和 AI 生成代码的安全漏洞",
+  "version": "0.1.0",
+  "publisher": "hanako",
+  "license": "MIT",
+  "icon": "images/icon.png",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Linters",
+    "Other"
+  ],
+  "keywords": [
+    "security",
+    "sast",
+    "ai",
+    "code-review",
+    "poisoning",
+    "static-analysis"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "code-sentry-sidebar",
+          "title": "Code Sentry",
+          "icon": "$(shield)"
+        }
+      ]
+    },
+    "views": {
+      "code-sentry-sidebar": [
+        {
+          "id": "code-sentry-findings",
+          "name": "扫描结果",
+          "icon": "$(shield)",
+          "contextualTitle": "Code Sentry"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "code-sentry.scanFile",
+        "title": "Code Sentry: 扫描当前文件"
+      },
+      {
+        "command": "code-sentry.scanWorkspace",
+        "title": "Code Sentry: 扫描整个工作区"
+      },
+      {
+        "command": "code-sentry.toggleAutoScan",
+        "title": "Code Sentry: 切换自动扫描"
+      },
+      {
+        "command": "code-sentry.showReport",
+        "title": "Code Sentry: 显示扫描报告"
+      }
+    ],
+    "configuration": {
+      "title": "Code Sentry",
+      "properties": {
+        "codeSentry.pythonPath": {
+          "type": "string",
+          "default": "python",
+          "description": "Python 解释器路径"
+        },
+        "codeSentry.codeSentryPath": {
+          "type": "string",
+          "default": "",
+          "description": "code-sentry 项目路径（留空则自动查找）"
+        },
+        "codeSentry.autoScan": {
+          "type": "boolean",
+          "default": true,
+          "description": "保存文件时自动扫描"
+        },
+        "codeSentry.severity": {
+          "type": "string",
+          "default": "low",
+          "enum": ["critical", "high", "medium", "low"],
+          "description": "最低显示级别"
+        },
+        "codeSentry.excludePatterns": {
+          "type": "array",
+          "items": {"type": "string"},
+          "default": ["**/node_modules/**", "**/__pycache__/**", "**/.git/**", "**/dist/**"],
+          "description": "排除文件模式 (glob)"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.85.0",
+    "@types/node": "^18.0.0",
+    "typescript": "^5.3.0"
+  }
+}

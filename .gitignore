@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+.venv/
+venv/
+env/
+.tox/
+.mypy_cache/
+.pytest_cache/
+
+# VS Code
+.vscode/
+*.vsix
+
+# Node
+node_modules/
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Code Sentry 自身扫描输出（避免循环）
+.code-sentry-cache/
