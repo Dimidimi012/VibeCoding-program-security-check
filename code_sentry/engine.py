@@ -222,3 +222,41 @@ def run_scan(scan_path: str, rules: list[Rule] | None = None) -> ScanResult:
         findings=all_findings,
         duration_seconds=duration,
     )
+
+
+def run_deep_scan(scan_path: str) -> dict:
+    """执行深度分析（AST + 调用图 + 污点追踪 + 攻击链检测）
+
+    Args:
+        scan_path: 要扫描的目录或文件路径
+
+    Returns:
+        包含快速扫描和深度分析结果的字典
+    """
+    from code_sentry.analysis import deep_scan_directory, deep_scan
+
+    # 先执行快速扫描
+    fast_result = run_scan(scan_path)
+
+    # 再执行深度分析
+    scan_path_abs = os.path.abspath(scan_path)
+    if os.path.isfile(scan_path_abs):
+        deep_results = [deep_scan(scan_path_abs)]
+    else:
+        deep_results = deep_scan_directory(scan_path_abs)
+
+    # 汇总
+    total_taint_paths = sum(len(r.taint_paths) for r in deep_results)
+    total_attack_chains = sum(len(r.attack_chains) for r in deep_results)
+    total_errors = sum(len(r.errors) for r in deep_results)
+
+    return {
+        'fast_scan': fast_result,
+        'deep_results': deep_results,
+        'summary': {
+            'files_analyzed': len(deep_results),
+            'taint_paths': total_taint_paths,
+            'attack_chains': total_attack_chains,
+            'errors': total_errors,
+        },
+    }

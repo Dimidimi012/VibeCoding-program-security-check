@@ -11,7 +11,7 @@ CLI 入口：提供命令行扫描接口。
 import os
 import sys
 import json
-from code_sentry.engine import run_scan
+from code_sentry.engine import run_scan, run_deep_scan
 from code_sentry.reporters.terminal import render
 from code_sentry.rules.base import Severity, Category
 
@@ -36,15 +36,17 @@ def _build_click(click):
     @click.option('--category', '-c', type=click.Choice(['poisoning', 'security']),
                   help='仅显示指定类别')
     @click.option('--quiet', '-q', is_flag=True, help='安静模式，仅输出结果统计')
+    @click.option('--deep', 'deep_scan', is_flag=True, help='启用深度分析（AST + 调用图 + 污点追踪 + 攻击链）')
     @click.option('--version', is_flag=True, help='显示版本号')
-    def cli(path, output_json, severity, category, quiet, version):
+    def cli(path, output_json, severity, category, quiet, deep_scan, version):
         """Code Sentry — AI 代码本地安检仪
 
         扫描目标目录或文件，检测中转站投毒和 AI 生成代码的安全漏洞。
 
         \b
         示例:
-          code-sentry                   扫描当前目录
+          code-sentry                   扫描当前目录（快速模式）
+          code-sentry --deep            深度分析（AST + 调用图 + 攻击链）
           code-sentry /path/to/project  扫描指定目录
           code-sentry main.py           扫描单个文件
           code-sentry --json            以 JSON 格式输出
@@ -54,7 +56,7 @@ def _build_click(click):
             print(f"code-sentry v{__version__}")
             return
 
-        _run(path, output_json, severity, category, quiet)
+        _run(path, output_json, severity, category, quiet, deep_scan)
 
     return cli
 
@@ -80,6 +82,8 @@ def _build_argparse():
                         help='仅显示指定类别')
     parser.add_argument('--quiet', '-q', action='store_true',
                         help='安静模式')
+    parser.add_argument('--deep', action='store_true', dest='deep_scan',
+                        help='启用深度分析（AST + 调用图 + 污点追踪 + 攻击链）')
     parser.add_argument('--version', action='store_true',
                         help='显示版本号')
 
@@ -90,15 +94,18 @@ def _build_argparse():
         print(f"code-sentry v{__version__}")
         return
 
-    _run(args.path, args.output_json, args.severity, args.category, args.quiet)
+    _run(args.path, args.output_json, args.severity, args.category, args.quiet, getattr(args, 'deep_scan', False))
 
 
-def _run(path, output_json, severity, category, quiet):
+def _run(path, output_json, severity, category, quiet, deep_scan=False):
     """执行扫描并输出结果"""
-    # 规范化路径
     scan_path = os.path.abspath(path)
 
-    # 执行扫描
+    if deep_scan:
+        _run_deep(scan_path, output_json, quiet)
+        return
+
+    # 执行快速扫描
     result = run_scan(scan_path)
 
     # 过滤
@@ -132,6 +139,128 @@ def _run(path, output_json, severity, category, quiet):
     if has_critical:
         sys.exit(2)
     elif has_high:
+        sys.exit(1)
+    else:
+        sys.exit(0)
+
+
+def _run_deep(scan_path, output_json, quiet):
+    """执行深度分析"""
+    if quiet:
+        result = run_deep_scan(scan_path)
+        s = result['summary']
+        chains = sum(len(r.attack_chains) for r in result['deep_results'])
+        taints = s['taint_paths']
+        print(f"深度分析 {s['files_analyzed']} 文件 | 污点路径: {taints} | 攻击链: {chains}")
+        if chains > 0:
+            sys.exit(2)
+        elif taints > 0:
+            sys.exit(1)
+        else:
+            sys.exit(0)
+        return
+
+    if output_json:
+        result = run_deep_scan(scan_path)
+        output = {
+            'fast_scan': {
+                'files_scanned': result['fast_scan'].files_scanned,
+                'findings_count': len(result['fast_scan'].findings),
+            },
+            'deep_analysis': {
+                'summary': result['summary'],
+                'results': [
+                    {
+                        'file': r.file_path,
+                        'language': r.language,
+                        'symbols_count': len(r.symbols),
+                        'call_edges': len(r.call_graph),
+                        'taint_paths': [
+                            {
+                                'source': p.source.note,
+                                'sink': p.sink.note,
+                                'confidence': p.confidence,
+                                'source_line': p.source.symbol.location.line_start,
+                                'sink_line': p.sink.symbol.location.line_start,
+                            }
+                            for p in r.taint_paths
+                        ],
+                        'attack_chains': [
+                            {
+                                'name': c.chain_name,
+                                'severity': c.severity,
+                                'confidence': c.confidence,
+                                'summary': c.summary,
+                            }
+                            for c in r.attack_chains
+                        ],
+                        'errors': r.errors,
+                    }
+                    for r in result['deep_results']
+                ],
+            },
+        }
+        print(json.dumps(output, ensure_ascii=False, indent=2))
+        # 退出码
+        if result['summary']['attack_chains'] > 0:
+            sys.exit(2)
+        elif result['summary']['taint_paths'] > 0:
+            sys.exit(1)
+        else:
+            sys.exit(0)
+        return
+
+    # 终端输出
+    _render_deep(scan_path, run_deep_scan(scan_path))
+
+
+def _render_deep(scan_path, result):
+    """渲染深度分析终端报告"""
+    s = result['summary']
+    deep_results = result['deep_results']
+
+    print(f"\n{'='*60}")
+    print(f"  Code Sentry 深度分析报告")
+    print(f"  (AST 解析 → 调用图 → 污点追踪 → 攻击链检测)")
+    print(f"{'='*60}")
+    print(f"  扫描路径: {scan_path}")
+    print(f"  分析文件: {s['files_analyzed']} 个")
+    print(f"  污点路径: {s['taint_paths']} 条")
+    print(f"  攻击链:   {s['attack_chains']} 个")
+    print(f"{'='*60}")
+
+    for r in deep_results:
+        if not r.attack_chains and not r.taint_paths:
+            continue
+
+        fname = os.path.basename(r.file_path)
+        print(f"\n  📄 {fname} ({r.language})")
+
+        # 攻击链
+        for chain in r.attack_chains:
+            icon = {'critical': '🔴', 'high': '🟠', 'medium': '🟡'}.get(chain.severity, '⚪')
+            print(f"    {icon} [{chain.severity.upper()}] {chain.chain_name}")
+            print(f"       置信度: {int(chain.confidence * 100)}%")
+            print(f"       {chain.description}")
+            for i, path in enumerate(chain.matched_paths[:3], 1):
+                src = path.source.symbol.location.line_start
+                snk = path.sink.symbol.location.line_start
+                print(f"       路径 {i}: 行 {src} → 行 {snk}")
+
+        # 污点路径
+        for path in r.taint_paths:
+            src_line = path.source.symbol.location.line_start
+            sink_line = path.sink.symbol.location.line_start
+            conf = int(path.confidence * 100)
+            print(f"    🔗 污点路径 (置信度 {conf}%): 行 {src_line} → 行 {sink_line}")
+            print(f"       Source: {path.source.note}")
+            print(f"       Sink:   {path.sink.note}")
+
+    print(f"\n{'='*60}\n")
+
+    if s['attack_chains'] > 0:
+        sys.exit(2)
+    elif s['taint_paths'] > 0:
         sys.exit(1)
     else:
         sys.exit(0)
