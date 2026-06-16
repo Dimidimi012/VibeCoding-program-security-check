@@ -1,2 +1,5 @@
 rich>=13.0.0
 click>=8.0.0
+
+# 可选：多语言深度分析（tree-sitter 后端）
+# pip install tree-sitter tree-sitter-languages
