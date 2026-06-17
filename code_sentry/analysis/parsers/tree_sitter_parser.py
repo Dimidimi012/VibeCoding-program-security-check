@@ -55,14 +55,26 @@ if not _TREE_SITTER_AVAILABLE:
 # tree-sitter 核心
 _TREE_SITTER_CORE = False
 _Parser = None
+_Language = None
 try:
     from tree_sitter import Language, Parser
     _TREE_SITTER_CORE = True
     _Parser = Parser
+    _Language = Language
 except ImportError:
     pass
 
 _TREE_SITTER_AVAILABLE = _TREE_SITTER_AVAILABLE and _TREE_SITTER_CORE
+
+# ── 将语言指针包装为 Language 对象 ──────────────────────
+if _TREE_SITTER_AVAILABLE and _Language:
+    _wrapped = {}
+    for key, lang_fn in _TREE_SITTER_LANGS.items():
+        try:
+            _wrapped[key] = _Language(lang_fn)
+        except Exception:
+            _wrapped[key] = lang_fn  # fallback
+    _TREE_SITTER_LANGS = _wrapped
 
 
 # ── 语言到 tree-sitter 语言的映射 ────────────────────────
@@ -204,7 +216,7 @@ class TreeSitterParser:
             if not ts_lang:
                 return None
             parser = _Parser()
-            parser.set_language(ts_lang)
+            parser.language = ts_lang
             self._parsers[lang] = parser
         return self._parsers[lang]
 
@@ -287,6 +299,7 @@ class TSToUnified:
                 type=UnifiedNodeType.IDENTIFIER,
                 name=text,
                 location=self._loc(node),
+                source_code=text,
                 children=children,
             )
 
@@ -295,6 +308,7 @@ class TSToUnified:
                 type=UnifiedNodeType.IDENTIFIER,
                 location=self._loc(node),
                 children=children,
+                source_code=self._text(node),
             )
         return None
 
@@ -306,12 +320,18 @@ class TSToUnified:
         params_node = node.child_by_field_name('parameters')
         body_node = node.child_by_field_name('body')
 
+        # 设置当前函数上下文，使 _handle_call 能记录调用关系
+        prev_function = self.current_function
+        self.current_function = name
+
         children = []
         if body_node:
             for c in body_node.children:
                 child = self._convert_node(c)
                 if child:
                     children.append(child)
+
+        self.current_function = prev_function
 
         self.functions.append({
             'name': name,
@@ -361,13 +381,31 @@ class TSToUnified:
         )
 
     def _handle_assignment(self, node) -> UnifiedNode:
-        """处理赋值"""
+        """处理赋值。
+
+        不同语言的 AST 节点有不同的字段名：
+        - assignment_expression: left / right (JS, Java, C#, Rust)
+        - variable_declarator: name / value (JS, Java)
+        - let_declaration: pattern / value (Rust)
+        - short_var_declaration: left / right (Go)
+        因此需要尝试多种字段组合。
+        """
         left_node = node.child_by_field_name('left')
         right_node = node.child_by_field_name('right')
+        name_node = node.child_by_field_name('name')
         value_node = node.child_by_field_name('value')
+        pattern_node = node.child_by_field_name('pattern')
 
-        target = left_node or value_node
-        source = right_node
+        # 目标（变量名）：优先 left, 其次 name, 再次 pattern, 再次 value
+        target = left_node or name_node or pattern_node
+        if target is None:
+            target = value_node  # 某些语法中 value 可能是目标
+
+        # 源（赋值表达式）：优先 right, 其次 value
+        source = right_node or value_node
+        # 避免 source 和 target 指向同一个节点
+        if source is target:
+            source = None
 
         target_name = self._text(target) if target else ''
         children = []

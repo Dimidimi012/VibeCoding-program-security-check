@@ -69,14 +69,15 @@ def deep_scan(file_path: str) -> DeepAnalysisResult:
     """
     # 1. AST 解析（自动选择后端）
     parse_result = parse_file_new(file_path)
-    if parse_result.errors:
-        return _parse_result_to_deep(parse_result)
 
-    # 转换为内部格式
+    # 转换为内部格式（即使有错误也转换，保留已解析的符号和调用图）
     result = _parse_result_to_deep(parse_result)
 
-    # 2. 污点追踪
-    result = run_taint_analysis(result)
+    # 2. 污点追踪（传入 AST 解析结果以启用精确追踪）
+    if not parse_result.errors:
+        result = run_taint_analysis(result, parse_result)
+    else:
+        result = run_taint_analysis(result)
 
     # 3. 攻击链检测
     result = detect_chains(result)
